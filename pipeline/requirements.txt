@@ -1,0 +1,7 @@
+pandas==2.2.3
+numpy==2.2.1
+pykrx==1.0.48
+yfinance==0.2.54
+supabase==2.10.0
+python-dotenv==1.0.1
+pytz==2024.2

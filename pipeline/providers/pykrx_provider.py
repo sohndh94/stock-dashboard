@@ -1,0 +1,197 @@
+from __future__ import annotations
+
+from datetime import date
+from typing import Any
+
+import pandas as pd
+from pykrx import stock
+
+from pipeline.models import DailyFlowRecord, DailyPriceRecord
+from pipeline.providers.interfaces import FlowProvider, PriceProvider
+
+
+class PykrxProvider(PriceProvider, FlowProvider):
+    """KRX data provider using pykrx."""
+
+    STOCK_TICKER_MAP = {
+        "207940.KS": "207940",
+        "068270.KS": "068270",
+    }
+
+    INDEX_CODE_MAP = {
+        "KOSPI": "1001",
+        "KOSPI200_HEALTHCARE": "1160",
+    }
+
+    STOCK_FLOW_TARGETS = {
+        "207940": "207940.KS",
+        "068270": "068270.KS",
+    }
+
+    INVESTOR_MAP = {
+        "외국인합계": "foreign",
+        "기관합계": "institution",
+        "개인": "retail",
+        "기타법인": "other",
+        "기타": "other",
+    }
+
+    PRICE_COLUMN_MAP = {
+        "시가": "open",
+        "고가": "high",
+        "저가": "low",
+        "종가": "close",
+        "거래량": "volume",
+    }
+
+    def _fmt(self, value: date) -> str:
+        return value.strftime("%Y%m%d")
+
+    def _normalize_price_frame(self, frame: pd.DataFrame) -> pd.DataFrame:
+        if frame.empty:
+            return frame
+
+        renamed = frame.rename(columns=self.PRICE_COLUMN_MAP)
+        for column in ["open", "high", "low", "close", "volume"]:
+            if column not in renamed.columns:
+                renamed[column] = None
+
+        return renamed[["open", "high", "low", "close", "volume"]].copy()
+
+    def fetch_daily_prices(
+        self, symbols: list[str], start_date: date, end_date: date
+    ) -> list[DailyPriceRecord]:
+        results: list[DailyPriceRecord] = []
+        start_raw = self._fmt(start_date)
+        end_raw = self._fmt(end_date)
+
+        for symbol in symbols:
+            frame = pd.DataFrame()
+            if symbol in self.STOCK_TICKER_MAP:
+                ticker = self.STOCK_TICKER_MAP[symbol]
+                frame = stock.get_market_ohlcv_by_date(start_raw, end_raw, ticker)
+            elif symbol in self.INDEX_CODE_MAP:
+                index_code = self.INDEX_CODE_MAP[symbol]
+                frame = stock.get_index_ohlcv_by_date(start_raw, end_raw, index_code)
+
+            if frame.empty:
+                continue
+
+            normalized = self._normalize_price_frame(frame)
+            for trade_date, row in normalized.iterrows():
+                trade_day = trade_date.date()
+                close = row.get("close")
+                if close is None or pd.isna(close):
+                    continue
+
+                results.append(
+                    DailyPriceRecord(
+                        symbol=symbol,
+                        trade_date=trade_day,
+                        open=_to_float(row.get("open")),
+                        high=_to_float(row.get("high")),
+                        low=_to_float(row.get("low")),
+                        close=float(close),
+                        volume=_to_float(row.get("volume")),
+                        source="pykrx",
+                        price_date_actual=trade_day,
+                    )
+                )
+
+        return results
+
+    def fetch_daily_flows(
+        self, start_date: date, end_date: date, symbols: list[str] | None = None
+    ) -> list[DailyFlowRecord]:
+        results: list[DailyFlowRecord] = []
+        start_raw = self._fmt(start_date)
+        end_raw = self._fmt(end_date)
+
+        spine = stock.get_index_ohlcv_by_date(start_raw, end_raw, self.INDEX_CODE_MAP["KOSPI"])
+        if spine.empty:
+            return results
+
+        for trade_date in spine.index:
+            day = trade_date.date()
+            day_raw = self._fmt(day)
+
+            market_flows = self._safe_trading_value_by_investor(day_raw, day_raw, "KOSPI")
+            if market_flows is not None:
+                results.extend(
+                    self._frame_to_flows(
+                        frame=market_flows,
+                        target_type="market",
+                        target_code="KOSPI",
+                        trade_date=day,
+                    )
+                )
+
+            for ticker, symbol in self.STOCK_FLOW_TARGETS.items():
+                if symbols and symbol not in symbols:
+                    continue
+                stock_flows = self._safe_trading_value_by_investor(day_raw, day_raw, ticker)
+                if stock_flows is None:
+                    continue
+                results.extend(
+                    self._frame_to_flows(
+                        frame=stock_flows,
+                        target_type="stock",
+                        target_code=symbol,
+                        trade_date=day,
+                    )
+                )
+
+        return results
+
+    def _safe_trading_value_by_investor(
+        self, start_raw: str, end_raw: str, target: str
+    ) -> pd.DataFrame | None:
+        try:
+            return stock.get_market_trading_value_by_investor(start_raw, end_raw, target)
+        except Exception:
+            return None
+
+    def _frame_to_flows(
+        self,
+        frame: pd.DataFrame,
+        target_type: str,
+        target_code: str,
+        trade_date: date,
+    ) -> list[DailyFlowRecord]:
+        if frame.empty:
+            return []
+
+        records: list[DailyFlowRecord] = []
+        for investor_name, row in frame.iterrows():
+            investor_type = self.INVESTOR_MAP.get(str(investor_name))
+            if investor_type is None:
+                continue
+
+            buy_value = _to_float(row.get("매수"))
+            sell_value = _to_float(row.get("매도"))
+            if buy_value is None:
+                buy_value = 0.0
+            if sell_value is None:
+                sell_value = 0.0
+
+            records.append(
+                DailyFlowRecord(
+                    target_type=target_type,
+                    target_code=target_code,
+                    trade_date=trade_date,
+                    investor_type=investor_type,
+                    buy_value_krw=float(buy_value),
+                    sell_value_krw=float(sell_value),
+                    source="pykrx",
+                )
+            )
+
+        return records
+
+
+def _to_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    if pd.isna(value):
+        return None
+    return float(value)

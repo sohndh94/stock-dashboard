@@ -1,0 +1,43 @@
+name: Backfill Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "Backfill start date (YYYY-MM-DD)"
+        required: false
+        default: "2025-07-01"
+      end:
+        description: "Backfill end date (YYYY-MM-DD)"
+        required: false
+        default: ""
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      REPORT_START_DATE: "2025-07-01"
+      REPORT_CUTOFF_KST: "16:00"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r pipeline/requirements.txt
+
+      - name: Run backfill
+        run: |
+          if [ -n "${{ inputs.end }}" ]; then
+            python -m pipeline.jobs.backfill --start "${{ inputs.start }}" --end "${{ inputs.end }}" --retries 2 --retry-delays 60,180
+          else
+            python -m pipeline.jobs.backfill --start "${{ inputs.start }}" --retries 2 --retry-delays 60,180
+          fi

@@ -1,0 +1,135 @@
+:root {
+  --bg: #f2f3ef;
+  --bg-card: #ffffff;
+  --ink: #121212;
+  --muted: #5f655f;
+  --accent: #00684a;
+  --accent-soft: #daefe5;
+  --border: #d8dbd3;
+  --warn: #b04a00;
+  --ok: #00684a;
+  --partial: #9a5b00;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 10% -10%, #d7e5dd 0%, transparent 35%),
+    radial-gradient(circle at 90% 10%, #ebe6d1 0%, transparent 30%),
+    var(--bg);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 16px 72px;
+}
+
+.hero {
+  background: linear-gradient(135deg, #f9fff9 0%, #eef6ee 40%, #ecefdc 100%);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 20px;
+  box-shadow: 0 12px 30px rgba(16, 26, 19, 0.08);
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: 2rem;
+  line-height: 1.2;
+}
+
+.meta-row {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.badge {
+  font-size: 0.8rem;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #f3f3f1;
+  border: 1px solid var(--border);
+}
+
+.badge.complete {
+  background: var(--accent-soft);
+  border-color: #bfd9ca;
+  color: var(--ok);
+}
+
+.badge.partial {
+  background: #f9ede2;
+  border-color: #ebceb5;
+  color: var(--partial);
+}
+
+.section-grid {
+  margin-top: 20px;
+  display: grid;
+  gap: 16px;
+}
+
+.section-card {
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  padding: 16px;
+  box-shadow: 0 8px 18px rgba(18, 18, 18, 0.05);
+}
+
+.section-card h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.section-body {
+  margin-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.section-body p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.source-note {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.disclaimer {
+  margin-top: 20px;
+  border-radius: 14px;
+  border: 1px dashed #b2b8aa;
+  background: #f8faf2;
+  padding: 12px;
+  color: #3b403b;
+  font-size: 0.88rem;
+}
+
+@media (max-width: 768px) {
+  .hero h1 {
+    font-size: 1.45rem;
+  }
+
+  .section-card {
+    padding: 14px;
+  }
+}
