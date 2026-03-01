@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time
 from datetime import date
 from typing import Any
 
@@ -8,6 +10,8 @@ from pykrx import stock
 
 from pipeline.models import DailyFlowRecord, DailyPriceRecord
 from pipeline.providers.interfaces import FlowProvider, PriceProvider
+
+logger = logging.getLogger(__name__)
 
 
 class PykrxProvider(PriceProvider, FlowProvider):
@@ -47,6 +51,34 @@ class PykrxProvider(PriceProvider, FlowProvider):
     def _fmt(self, value: date) -> str:
         return value.strftime("%Y%m%d")
 
+    def _retry_krx_call(self, call_name: str, func, *args, **kwargs) -> pd.DataFrame:
+        """Retries flaky KRX endpoints and returns empty DataFrame if all retries fail."""
+        delays = [2, 5, 10, 20]
+        last_error: Exception | None = None
+        for attempt in range(1, len(delays) + 2):
+            try:
+                frame = func(*args, **kwargs)
+                if isinstance(frame, pd.DataFrame):
+                    return frame
+                return pd.DataFrame()
+            except Exception as exc:  # noqa: BLE001 - external API failures are non-deterministic
+                last_error = exc
+                if attempt <= len(delays):
+                    delay = delays[attempt - 1]
+                    logger.warning(
+                        "KRX call failed (%s, attempt %s): %s. retrying in %ss",
+                        call_name,
+                        attempt,
+                        exc,
+                        delay,
+                    )
+                    time.sleep(delay)
+                else:
+                    break
+
+        logger.error("KRX call failed (%s) after retries: %s", call_name, last_error)
+        return pd.DataFrame()
+
     def _normalize_price_frame(self, frame: pd.DataFrame) -> pd.DataFrame:
         if frame.empty:
             return frame
@@ -69,10 +101,22 @@ class PykrxProvider(PriceProvider, FlowProvider):
             frame = pd.DataFrame()
             if symbol in self.STOCK_TICKER_MAP:
                 ticker = self.STOCK_TICKER_MAP[symbol]
-                frame = stock.get_market_ohlcv_by_date(start_raw, end_raw, ticker)
+                frame = self._retry_krx_call(
+                    f"get_market_ohlcv_by_date:{symbol}",
+                    stock.get_market_ohlcv_by_date,
+                    start_raw,
+                    end_raw,
+                    ticker,
+                )
             elif symbol in self.INDEX_CODE_MAP:
                 index_code = self.INDEX_CODE_MAP[symbol]
-                frame = stock.get_index_ohlcv_by_date(start_raw, end_raw, index_code)
+                frame = self._retry_krx_call(
+                    f"get_index_ohlcv_by_date:{symbol}",
+                    stock.get_index_ohlcv_by_date,
+                    start_raw,
+                    end_raw,
+                    index_code,
+                )
 
             if frame.empty:
                 continue
@@ -107,7 +151,13 @@ class PykrxProvider(PriceProvider, FlowProvider):
         start_raw = self._fmt(start_date)
         end_raw = self._fmt(end_date)
 
-        spine = stock.get_index_ohlcv_by_date(start_raw, end_raw, self.INDEX_CODE_MAP["KOSPI"])
+        spine = self._retry_krx_call(
+            "get_index_ohlcv_by_date:KOSPI:flow_spine",
+            stock.get_index_ohlcv_by_date,
+            start_raw,
+            end_raw,
+            self.INDEX_CODE_MAP["KOSPI"],
+        )
         if spine.empty:
             return results
 
@@ -146,10 +196,16 @@ class PykrxProvider(PriceProvider, FlowProvider):
     def _safe_trading_value_by_investor(
         self, start_raw: str, end_raw: str, target: str
     ) -> pd.DataFrame | None:
-        try:
-            return stock.get_market_trading_value_by_investor(start_raw, end_raw, target)
-        except Exception:
+        frame = self._retry_krx_call(
+            f"get_market_trading_value_by_investor:{target}",
+            stock.get_market_trading_value_by_investor,
+            start_raw,
+            end_raw,
+            target,
+        )
+        if frame.empty:
             return None
+        return frame
 
     def _frame_to_flows(
         self,

@@ -8,7 +8,7 @@ from pipeline.config import (
     MACRO_METRICS,
     YF_PRICE_SYMBOLS,
 )
-from pipeline.models import InstrumentRecord
+from pipeline.models import DailyPriceRecord, InstrumentRecord
 from pipeline.providers.pykrx_provider import PykrxProvider
 from pipeline.providers.yfinance_provider import YFinanceProvider
 from pipeline.repository import SupabaseRepository
@@ -26,8 +26,28 @@ def collect_ingest_window(
     yfinance = YFinanceProvider()
 
     price_records = []
-    price_records.extend(pykrx.fetch_daily_prices(KRX_PRICE_SYMBOLS, start_date, end_date))
+    krx_prices = pykrx.fetch_daily_prices(KRX_PRICE_SYMBOLS, start_date, end_date)
+    price_records.extend(krx_prices)
     price_records.extend(yfinance.fetch_daily_prices(YF_PRICE_SYMBOLS, start_date, end_date))
+
+    # Fallback for KOSPI when KRX index endpoint is temporarily unstable.
+    has_kospi = any(record.symbol == "KOSPI" for record in krx_prices)
+    if not has_kospi:
+        kospi_proxy = yfinance.fetch_daily_prices(["^KS11"], start_date, end_date)
+        for record in kospi_proxy:
+            price_records.append(
+                DailyPriceRecord(
+                    symbol="KOSPI",
+                    trade_date=record.trade_date,
+                    open=record.open,
+                    high=record.high,
+                    low=record.low,
+                    close=record.close,
+                    volume=record.volume,
+                    source="yfinance",
+                    price_date_actual=record.price_date_actual,
+                )
+            )
 
     flow_records = pykrx.fetch_daily_flows(
         start_date,
