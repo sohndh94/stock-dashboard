@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from datetime import date
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -21,10 +22,17 @@ def load_config() -> AppConfig:
     supabase_url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
     if not supabase_url:
         raise RuntimeError("SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) is required")
+    supabase_url = supabase_url.strip()
+    parsed = urlparse(supabase_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise RuntimeError(
+            "SUPABASE_URL is invalid. Expected format: https://<project-ref>.supabase.co"
+        )
 
     service_role = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
     if not service_role:
         raise RuntimeError("SUPABASE_SERVICE_ROLE_KEY is required")
+    service_role = service_role.strip()
 
     start_date_raw = os.getenv("REPORT_START_DATE", "2025-07-01")
     year, month, day = [int(part) for part in start_date_raw.split("-")]
