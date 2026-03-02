@@ -2,58 +2,78 @@
 
 import ReactECharts from "echarts-for-react";
 
-import { ChartResponse } from "@/lib/types";
+import { ChartSeries } from "@/lib/types";
 
 interface PriceChartProps {
-  data: ChartResponse;
+  series: ChartSeries[];
+  height?: number;
+  monochrome?: boolean;
 }
 
-const COLORS = ["#00684a", "#145d8a", "#9f5f00", "#8f345f", "#496c0b", "#5f4d98"];
+const MONO_COLORS = ["#111111", "#333333", "#555555", "#777777", "#999999", "#bbbbbb"];
+const DEFAULT_COLORS = ["#111111", "#4a4a4a", "#707070", "#8a8a8a", "#a0a0a0", "#b9b9b9"];
 
-export default function PriceChart({ data }: PriceChartProps) {
+export default function PriceChart({
+  series,
+  height = 340,
+  monochrome = false
+}: PriceChartProps) {
+  const colors = monochrome ? MONO_COLORS : DEFAULT_COLORS;
+
   const option = {
-    color: COLORS,
+    color: colors,
     tooltip: {
-      trigger: "axis"
+      trigger: "axis",
+      backgroundColor: "#fff",
+      borderColor: "#111",
+      borderWidth: 1,
+      textStyle: { color: "#111" }
     },
     legend: {
       type: "scroll",
-      top: 0
+      top: 0,
+      textStyle: { color: "#222" }
     },
     grid: {
-      left: 18,
-      right: 18,
-      top: 52,
-      bottom: 20,
+      left: 14,
+      right: 14,
+      top: 48,
+      bottom: 18,
       containLabel: true
     },
     xAxis: {
       type: "time",
       axisLabel: {
-        color: "#465046"
+        color: "#666"
+      },
+      axisLine: {
+        lineStyle: {
+          color: "#c8c8c8"
+        }
       }
     },
     yAxis: {
       type: "value",
       axisLabel: {
         formatter: (value: number) => `${value.toFixed(0)}`,
-        color: "#465046"
+        color: "#666"
       },
       splitLine: {
         lineStyle: {
-          color: "#e3e7df"
+          color: "#ececec"
         }
       }
     },
-    series: data.series.map((series) => ({
-      name: series.label,
+    series: series.map((item, index) => ({
+      name: item.label,
       type: "line",
       showSymbol: false,
-      smooth: 0.15,
+      smooth: 0.1,
       lineStyle: {
-        width: 2
+        width: index === 0 ? 2.2 : 1.8,
+        type: index % 3 === 0 ? "solid" : "dashed"
       },
-      data: series.points.map((point) => [point.date, point.value])
+      data: item.points.map((point) => [point.date, point.value])
     }))
   };
 
@@ -62,7 +82,7 @@ export default function PriceChart({ data }: PriceChartProps) {
       option={option}
       notMerge
       lazyUpdate
-      style={{ width: "100%", height: 340 }}
+      style={{ width: "100%", height }}
       opts={{ renderer: "canvas" }}
     />
   );

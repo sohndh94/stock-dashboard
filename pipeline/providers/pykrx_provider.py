@@ -109,17 +109,26 @@ class PykrxProvider(PriceProvider, FlowProvider):
         return renamed[["open", "high", "low", "close", "volume"]].copy()
 
     def fetch_daily_prices(
-        self, symbols: list[str], start_date: date, end_date: date
+        self, symbols: list[str] | list[dict[str, str]], start_date: date, end_date: date
     ) -> list[DailyPriceRecord]:
         results: list[DailyPriceRecord] = []
         start_raw = self._fmt(start_date)
         end_raw = self._fmt(end_date)
 
-        for symbol in symbols:
+        for target in symbols:
+            if isinstance(target, dict):
+                symbol = target["symbol"]
+                provider_symbol = target.get("provider_symbol", symbol)
+                asset_type = target.get("asset_type")
+            else:
+                symbol = target
+                provider_symbol = ""
+                asset_type = None
+
             frame = pd.DataFrame()
             source_name = "pykrx"
-            if symbol in self.STOCK_TICKER_MAP:
-                ticker = self.STOCK_TICKER_MAP[symbol]
+            if asset_type == "stock" or symbol in self.STOCK_TICKER_MAP:
+                ticker = provider_symbol or self.STOCK_TICKER_MAP.get(symbol, symbol.replace(".KS", ""))
                 frame = self._retry_krx_call(
                     f"get_market_ohlcv_by_date:{symbol}",
                     stock.get_market_ohlcv_by_date,
@@ -127,8 +136,10 @@ class PykrxProvider(PriceProvider, FlowProvider):
                     end_raw,
                     ticker,
                 )
-            elif symbol in self.INDEX_CODE_MAP:
-                index_code = self.INDEX_CODE_MAP[symbol]
+            elif asset_type == "index" or symbol in self.INDEX_CODE_MAP:
+                index_code = provider_symbol or self.INDEX_CODE_MAP.get(symbol, "")
+                if not index_code:
+                    continue
                 frame = self._retry_krx_call(
                     f"get_index_ohlcv_by_date:{symbol}",
                     stock.get_index_ohlcv_by_date,

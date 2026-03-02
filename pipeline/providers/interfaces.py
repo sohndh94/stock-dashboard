@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import date
+from datetime import date, datetime
 
-from pipeline.models import DailyFlowRecord, DailyMacroRecord, DailyPriceRecord
+from pipeline.models import (
+    DailyFlowRecord,
+    DailyIssueEventRecord,
+    DailyMacroRecord,
+    DailyPriceRecord,
+)
 
 
 class PriceProvider(ABC):
     @abstractmethod
     def fetch_daily_prices(
-        self, symbols: list[str], start_date: date, end_date: date
+        self, symbols: list[str] | list[dict[str, str]], start_date: date, end_date: date
     ) -> list[DailyPriceRecord]:
         raise NotImplementedError
 
@@ -33,6 +38,10 @@ class MacroProvider(ABC):
 class IssueProvider(ABC):
     @abstractmethod
     def fetch_daily_issues(
-        self, query_date: date, symbols: list[str]
-    ) -> list[dict[str, str]]:
+        self,
+        query_date: date,
+        cutoff_kst: datetime,
+        section_queries: dict[str, list[str]],
+        symbols: list[str],
+    ) -> list[DailyIssueEventRecord]:
         raise NotImplementedError

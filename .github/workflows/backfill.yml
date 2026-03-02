@@ -36,6 +36,7 @@ jobs:
 
       - name: Run backfill
         run: |
+          python -m pipeline.jobs.sync_universe --retries 2 --retry-delays 60,180
           if [ -n "${{ inputs.end }}" ]; then
             python -m pipeline.jobs.backfill --start "${{ inputs.start }}" --end "${{ inputs.end }}" --retries 2 --retry-delays 60,180
           else

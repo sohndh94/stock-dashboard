@@ -6,7 +6,7 @@ from typing import Any
 import pandas as pd
 import yfinance as yf
 
-from pipeline.models import DailyMacroRecord, DailyPriceRecord
+from pipeline.models import DailyCompanyMetricRecord, DailyMacroRecord, DailyPriceRecord
 from pipeline.providers.interfaces import MacroProvider, PriceProvider
 
 
@@ -14,14 +14,21 @@ class YFinanceProvider(PriceProvider, MacroProvider):
     """Overseas price and macro proxy provider via yfinance."""
 
     def fetch_daily_prices(
-        self, symbols: list[str], start_date: date, end_date: date
+        self, symbols: list[str] | list[dict[str, str]], start_date: date, end_date: date
     ) -> list[DailyPriceRecord]:
         records: list[DailyPriceRecord] = []
         end_exclusive = end_date + timedelta(days=1)
 
-        for symbol in symbols:
+        for target in symbols:
+            if isinstance(target, dict):
+                symbol = target["symbol"]
+                provider_symbol = target.get("provider_symbol", symbol)
+            else:
+                symbol = target
+                provider_symbol = target
+
             frame = yf.download(
-                symbol,
+                provider_symbol,
                 start=start_date.isoformat(),
                 end=end_exclusive.isoformat(),
                 interval="1d",
@@ -52,6 +59,49 @@ class YFinanceProvider(PriceProvider, MacroProvider):
                         price_date_actual=day,
                     )
                 )
+
+        return records
+
+    def fetch_company_metrics(
+        self,
+        symbols: list[dict[str, str]],
+        trade_date: date,
+    ) -> list[DailyCompanyMetricRecord]:
+        records: list[DailyCompanyMetricRecord] = []
+
+        for target in symbols:
+            symbol = target["symbol"]
+            provider_symbol = target.get("provider_symbol", symbol)
+
+            market_cap = None
+            shares_outstanding = None
+
+            try:
+                ticker = yf.Ticker(provider_symbol)
+                fast_info = ticker.fast_info
+                market_cap = _to_float(fast_info.get("marketCap"))
+                shares_outstanding = _to_float(fast_info.get("shares"))
+
+                # Fallback for cases where fast_info is sparse.
+                if market_cap is None or shares_outstanding is None:
+                    info = ticker.info
+                    if market_cap is None:
+                        market_cap = _to_float(info.get("marketCap"))
+                    if shares_outstanding is None:
+                        shares_outstanding = _to_float(info.get("sharesOutstanding"))
+            except Exception:
+                # Soft-fail per symbol for rate limits or temporary upstream errors.
+                pass
+
+            records.append(
+                DailyCompanyMetricRecord(
+                    symbol=symbol,
+                    trade_date=trade_date,
+                    market_cap=market_cap,
+                    shares_outstanding=shares_outstanding,
+                    source="yfinance",
+                )
+            )
 
         return records
 
