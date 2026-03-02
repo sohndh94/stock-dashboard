@@ -26,6 +26,11 @@ class PykrxProvider(PriceProvider, FlowProvider):
         "KOSPI": "1001",
         "KOSPI200_HEALTHCARE": "1160",
     }
+    # Fallback when KRX index endpoint is unstable.
+    # TIGER 200 Health Care ETF is used as a free proxy for index direction.
+    INDEX_PROXY_ETF_MAP = {
+        "KOSPI200_HEALTHCARE": "227540",
+    }
 
     STOCK_FLOW_TARGETS = {
         "207940": "207940.KS",
@@ -63,21 +68,34 @@ class PykrxProvider(PriceProvider, FlowProvider):
                 return pd.DataFrame()
             except Exception as exc:  # noqa: BLE001 - external API failures are non-deterministic
                 last_error = exc
+                error_msg = self._safe_error_message(exc)
                 if attempt <= len(delays):
                     delay = delays[attempt - 1]
                     logger.warning(
                         "KRX call failed (%s, attempt %s): %s. retrying in %ss",
                         call_name,
                         attempt,
-                        exc,
+                        error_msg,
                         delay,
                     )
                     time.sleep(delay)
                 else:
                     break
 
-        logger.error("KRX call failed (%s) after retries: %s", call_name, last_error)
+        logger.error(
+            "KRX call failed (%s) after retries: %s",
+            call_name,
+            self._safe_error_message(last_error),
+        )
         return pd.DataFrame()
+
+    def _safe_error_message(self, exc: Exception | None) -> str:
+        if exc is None:
+            return "unknown error"
+        try:
+            return str(exc)
+        except Exception:  # noqa: BLE001
+            return repr(exc)
 
     def _normalize_price_frame(self, frame: pd.DataFrame) -> pd.DataFrame:
         if frame.empty:
@@ -99,6 +117,7 @@ class PykrxProvider(PriceProvider, FlowProvider):
 
         for symbol in symbols:
             frame = pd.DataFrame()
+            source_name = "pykrx"
             if symbol in self.STOCK_TICKER_MAP:
                 ticker = self.STOCK_TICKER_MAP[symbol]
                 frame = self._retry_krx_call(
@@ -117,6 +136,21 @@ class PykrxProvider(PriceProvider, FlowProvider):
                     end_raw,
                     index_code,
                 )
+                if frame.empty and symbol in self.INDEX_PROXY_ETF_MAP:
+                    proxy_ticker = self.INDEX_PROXY_ETF_MAP[symbol]
+                    logger.warning(
+                        "Using ETF proxy %s for %s due to missing index OHLCV.",
+                        proxy_ticker,
+                        symbol,
+                    )
+                    source_name = "pykrx_proxy_etf"
+                    frame = self._retry_krx_call(
+                        f"get_market_ohlcv_by_date:proxy:{symbol}",
+                        stock.get_market_ohlcv_by_date,
+                        start_raw,
+                        end_raw,
+                        proxy_ticker,
+                    )
 
             if frame.empty:
                 continue
@@ -137,7 +171,7 @@ class PykrxProvider(PriceProvider, FlowProvider):
                         low=_to_float(row.get("low")),
                         close=float(close),
                         volume=_to_float(row.get("volume")),
-                        source="pykrx",
+                        source=source_name,
                         price_date_actual=trade_day,
                     )
                 )
